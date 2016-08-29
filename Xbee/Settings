@@ -1,0 +1,10 @@
+
+Set
+
+PAN ID = {SAME NUMBER FOR XBEES IN SAME NETWORK}
+
+Coordinate Enable = Disabled (Unless Raspberry Pi Xbee)
+
+Baud Rate = 57600
+
+Stop Bits = Two stop bits 
