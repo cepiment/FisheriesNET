@@ -1,0 +1,535 @@
+#include <TinyGPS++.h>
+#include <SoftwareSerial.h>
+#include <SD.h>
+#include<stdlib.h>
+#include <SPI.h>
+//#include "TinyGPS++.h"
+
+
+
+static const int RXPin = 3, TXPin = 2;
+static const uint32_t GPSBaud = 9600;
+
+// The TinyGPS++ object
+TinyGPSPlus gps;
+
+// The serial connection to the GPS device
+SoftwareSerial ss(2, 3); 
+
+static char dtostrfbuffer[30];
+int CS = 10;
+int led = 9;
+int POWER2 = 6;
+int POWER = 7;
+const int buttonPin = 4;
+int POWER3 =5;
+
+//Define String
+char yes;
+File file;
+File myFile;
+String SD_date = "invalid";
+String SD_time = "invalid";
+String SD_lat = "invalid";
+String SD_lon = "invalid";
+String SD_speed = "invalid";
+String SD_boat = "S0022";
+int SD_trip = 0;
+int test = 0;
+int test2 = 8;
+double MSM_LON  = -117.251989, MSM_LAT = 32.870225;;
+int buttonState = 0; 
+int k=0;
+int fc =10000;
+String fn = "log.csv";
+String Date;
+int p=0;
+int turn=0;
+int notstationary =0;
+int stand=0;
+int moving =0;
+int firstlock = 0;
+
+
+void setup()
+
+{
+
+
+  // disable ADC
+  ADCSRA = 0;      
+  pinMode(led, OUTPUT);  
+  pinMode(CS, OUTPUT);  
+  pinMode(buttonPin, INPUT);  
+  pinMode(POWER, OUTPUT);
+  pinMode(POWER2, OUTPUT);
+  pinMode(POWER3, OUTPUT);
+  digitalWrite (POWER, LOW);  // turn power ON for SD card
+  digitalWrite (POWER2, LOW);  // turn power ON for GPS
+  digitalWrite (POWER3, HIGH); //turn power off for XBee module
+  
+
+ 
+  shortwait(); // give time to power up    
+   
+  Serial.begin(57600);
+  ss.begin(GPSBaud);
+
+  //Connect to SD
+  if(!SD.begin(CS))
+  {
+    return;
+  }
+ readSDSettings();
+ 
+}
+
+void loop()
+{
+
+digitalWrite (POWER, HIGH); //turn off SD card
+
+
+if(gps.location.isUpdated())
+{k=1;
+
+}
+else
+  {
+  ledflash();
+  ledflash();
+  ledflash();
+k=0;
+
+}
+ 
+ printFloat(gps.location.lat(), gps.location.isValid(), 11, 6, 1);
+ printFloat(gps.location.lng(), gps.location.isValid(), 12, 6, 2);
+ printDateTime(gps.date, gps.time);
+ printFloat(gps.speed.kmph(), gps.speed.isValid(), 6, 2, 3);
+  
+unsigned long KmToMSM = (unsigned long)TinyGPSPlus::distanceBetween(
+      gps.location.lat(),
+      gps.location.lng(),
+      MSM_LAT, 
+     MSM_LON);
+ //printInt(KmToMSM, gps.location.isValid(), 9);
+
+if(k){
+if(gps.speed.kmph()<1){
+  if(stand <13){
+  stand++;}
+  if(stand>2){
+  moving=0;}
+  if(stand==12){
+  notstationary=0;
+  }}
+
+if(gps.speed.kmph()>1){
+if(moving<7){
+  moving++;}
+  if(moving>2){
+    stand=0;}
+  if(moving==6){
+  notstationary=1;
+  }}
+}
+
+
+if(KmToMSM < 12510000){
+  if(KmToMSM > 300){
+       if(test < 8){
+          test++;
+          if(test > 6){
+             test2=0; 
+      }}}
+    else{
+       test=0;
+       if(test2 < 6){
+          test2++;
+          if(test2 == 4){
+             SD_trip++;
+             turn=1;
+             fc=0;          }
+             
+             }}}
+  
+smartDelay(1000);
+
+
+//t++;
+if(k){
+ if(fc > 5000){     //arbitrarily long number to increment the filename
+fn = filecreate();
+ fc=0;              //set fc = 0 to allow for incrementation
+  //t=1;
+  }
+}
+
+//sleep the peripherals of the device for power saving 
+
+
+
+ 
+ for(int tt =0; tt<14 ; tt++){
+
+ buttonState = digitalRead(buttonPin); //sets the un/pressed button state to variable  
+ if (buttonState == HIGH){
+  break;
+ }
+ wait();
+ }
+// delay(400);
+
+//Serial.println(SD_lat + "," + SD_lon  +"," + SD_speed + "," + SD_date + "," + SD_time);
+//Serial.println(+ "," + SD_boat + "," +   SD_trip + "," +  buttonState);
+
+if(k){
+  
+digitalWrite (POWER, LOW); // SD card turn on 
+delay(250); // give time to allow the card to wake
+SD.begin(CS); // SD card need reinitialization
+
+
+// Write the file 
+
+
+
+
+
+  file = SD.open(fn, FILE_WRITE);  //attempt to read the file from the device 
+  if (file) {  //if file is read 
+    if(k){ // if the gps corrdinates are valid
+      file.print(SD_lat + "," + SD_lon  +"," + SD_speed + "," + SD_date + "" + SD_time + ","); //add first set of information. split into two to make sure too much information is not read at once
+      file.println(SD_boat + "," +   SD_trip + "," + KmToMSM + "Q"); //second set of information as well as adding a new line
+    //  file.println();
+      file.close(); //close the SD card file
+      fc++;  //increment the file count 
+   }
+      else //if gps is not valid close the file
+      {
+      file.close();
+      }
+  //  file.close();//     close the file:      
+    }
+
+    else //if the file cannot be read
+    {
+  //    ledlong(); //turn on led for long duration of time to allow user to see that something is wrong  
+    }
+file.close();
+
+}
+
+
+
+ buttonState = digitalRead(buttonPin); //sets the un/pressed button state to variable 
+   
+  if (buttonState == HIGH) {     
+ 
+    if(k){   // if button is pressed and gps is valid turn LED on: 
+    ledlong(); 
+    MSM_LAT =gps.location.lat();
+    MSM_LON =gps.location.lng();
+    writeSDSettings();
+     
+    }
+    else{
+     ledflash();
+     ledflash();
+    }} 
+  else {
+     digitalWrite(led, LOW); 
+  }
+
+
+if(SD.begin(CS))
+  {
+  }
+  
+if(firstlock == 0 && k){
+          setGPS_PowerSaveMode();
+         firstlock = 1;
+         wait();
+       
+}
+
+ if(turn){
+  writeSDSettings(); 
+digitalWrite (POWER3, LOW); //turn xbee on
+   shortwait();
+   shortwait();
+ 
+file = SD.open(fn);
+ if (file) {
+Serial.println();
+  shortwait();
+while (file.available()) {
+    yes=file.read();
+    if(yes=='Q'){
+    ledflash();
+    ledflash();
+    ledflash();}
+    else
+    Serial.write(yes);
+    }
+file.close();
+    }
+    fc=5001;
+   // wait();
+    wait();
+    wait();
+    
+     turn=0;
+     digitalWrite (POWER3, HIGH); //turn xbee off
+    }
+
+    
+/*
+ 
+  
+   tile = SD.open(fn);
+      if (tile) {
+         Serial.print("date/time"  ","  "lat"  ","  "long"); //add first set of information. split into two to make sure too much information is not read at once
+         Serial.println("," "speed" ","  "Trip#"  ","  "dist to port"  ","  "Boat#"); //second set of information as well as adding a new line
+    // read from the file until there's nothing else in it:
+    
+    while (tile.available()) {
+    Serial.write(tile.read());}
+    
+    digitalWrite (POWER3, HIGH); //turn xbee on
+    t=0; 
+    }
+    file.close();
+    }
+
+    */
+
+
+
+ 
+  }
+    
+
+// This custom version of delay() ensures that the gps object
+// is being "fed".
+static void smartDelay(unsigned long ms)
+{
+  unsigned long start = millis();
+  do 
+  {
+    while (ss.available())
+      gps.encode(ss.read());
+  } while (millis() - start < ms);
+}
+
+static void printFloat(float val, bool valid, int len, int prec, int SD_val)
+{
+  char sz[32];
+  if (!valid)
+  {
+    strcpy(sz, "*******");
+    sz[len] = 0;
+        if (len > 0) 
+          sz[len-1] = ' ';
+    for (int i=7; i<len; ++i)
+        sz[i] = ' ';
+  //  Serial.print(sz);
+    if(SD_val == 1) SD_lat = sz;
+    else if(SD_val ==2) SD_lon =sz;
+    else if(SD_val ==3)SD_speed =sz;
+   }
+  else
+  {
+    //Serial.print(val, prec);
+    if (SD_val ==1){SD_lat = dtostrf(val,10,5,dtostrfbuffer);}
+    else if (SD_val ==2){ SD_lon = dtostrf(val,10,5,dtostrfbuffer);}
+    else if (SD_val ==3) {SD_speed = dtostrf(val,10,5,dtostrfbuffer);}   
+    int vi = abs((int)val);
+    int flen = prec + (val < 0.0 ? 2 : 1); // . and -
+    flen += vi >= 1000 ? 4 : vi >= 100 ? 3 : vi >= 10 ? 2 : 1;
+   // for (int i=flen; i<len; ++i)
+    //  Serial.print(' ');
+  }
+  smartDelay(0);
+}
+
+static void printInt(unsigned long val, bool valid, int len)
+{
+  char sz[32] = "*****************";
+  if (valid)
+    sprintf(sz, "%ld", val);
+  sz[len] = 0;
+  for (int i=strlen(sz); i<len; ++i)
+    sz[i] = ' ';
+  if (len > 0) 
+    sz[len-1] = ' ';
+ // Serial.print(sz);
+  smartDelay(0);
+}
+
+static void printDateTime(TinyGPSDate &d, TinyGPSTime &t)
+{
+  if (!d.isValid())
+  {
+   // Serial.print(F("********** "));
+    SD_date= "invalid";
+  }
+  else
+  {
+    char sz[32];
+    sprintf(sz, "%02d/%02d/%02d ", d.month(), d.day(), d.year());
+   // Serial.print(sz);
+    SD_date =sz;
+  }
+  
+  if (!t.isValid())
+  {
+   // Serial.print(F("******** "));
+    SD_time= "invalid";
+  }
+  else
+  {
+    char sz[32];
+    sprintf(sz, "%02d:%02d:%02d ", t.hour(), t.minute(), t.second());
+    //Serial.print(sz);
+    SD_time = sz;
+  }
+  
+  printInt(d.age(), d.isValid(), 5);
+  smartDelay(0);
+}
+
+ void readSDSettings(){
+ char character;
+ String settingName;
+ String settingValue;
+ myFile = SD.open("settings.txt");
+ if (myFile) {
+ while (myFile.available()) {
+ character = myFile.read();
+ while((myFile.available()) && (character != '[')){
+ character = myFile.read();
+ }
+ character = myFile.read();
+ while((myFile.available()) && (character != '=')){
+ settingName = settingName + character;
+ character = myFile.read();
+ }
+ character = myFile.read();
+ while((myFile.available()) && (character != ']')){
+ settingValue = settingValue + character;
+ character = myFile.read();
+ }
+ if(character == ']'){
+ 
+ applySetting(settingName,settingValue);
+ settingName = "";
+ settingValue = "";
+ }
+ }
+ myFile.close();
+ } else {
+ }
+ }
+
+ void applySetting(String settingName, String settingValue) {
+ if(settingName == "MSM_LON") {
+ MSM_LON=toFloat(settingValue);
+ }
+ if(settingName == "MSM_LAT") {
+ MSM_LAT=toFloat(settingValue);
+ }
+  if(settingName == "SD_boat") {
+ SD_boat=settingValue;
+ }
+  if(settingName == "SD_trip") {
+ SD_trip=settingValue.toInt();
+ }
+ }
+ 
+ // converting string to Float
+ float toFloat(String settingValue){
+ char floatbuf[settingValue.length()+1];
+ settingValue.toCharArray(floatbuf, sizeof(floatbuf));
+ float f = atof(floatbuf);
+ return f;
+ }
+ 
+
+ void writeSDSettings() {
+ SD.remove("settings.txt");
+ myFile = SD.open("settings.txt", FILE_WRITE);
+ myFile.print("[MSM_LON=");
+ myFile.print(MSM_LON,5);
+ myFile.println("]");
+ myFile.print("[MSM_LAT=");
+ myFile.print(MSM_LAT,5);
+ myFile.println("]");
+ myFile.print("[SD_boat=");
+ myFile.print(SD_boat);
+ myFile.println("]");
+ myFile.print("[SD_trip=");
+ myFile.print(SD_trip);
+ myFile.println("]");
+ myFile.close();
+}
+
+ void ledlong(){
+   digitalWrite(led, HIGH);
+   //delay(1000);
+    wait();
+ digitalWrite(led, LOW);
+    wait();
+ //delay(1000);
+ }
+ 
+ void ledflash(){
+   digitalWrite(led, HIGH);
+    shortwait();
+    digitalWrite(led, LOW);
+    shortwait();
+ }
+
+void wait(){
+  delay(1000);
+}
+
+void shortwait(){
+  delay(50);
+}
+
+ 
+void sendUBX(uint8_t *MSG, uint8_t len) {
+  ss.flush();
+  ss.write(0xFF);
+  delay(100);
+  for(int i=0; i<len; i++) {
+    ss.write(MSG[i]);
+  }
+}
+
+void setGPS_PowerSaveMode() {
+  // Power Save Mode 
+  uint8_t setPSM[] = { 
+    0xB5, 0x62, 0x06, 0x11, 0x02, 0x00, 0x08, 0x01, 0x22, 0x92 }; // Setup for Power Save Mode (Default Cyclic 1s)
+  sendUBX(setPSM, sizeof(setPSM)/sizeof(uint8_t));
+}
+
+String filecreate(){
+  Date= SD_date;   //set date to seperate variable to not change SD_date information 
+  Date.trim();     //removes whitespace
+  Date.remove(10);  //removes the information after 2015
+  Date.remove(5,3); //removes the /00 from the date
+  Date.remove(2,1); //removes the first / from date
+  fn = Date + SD_boat + ".csv"; //add the filetype at end of the file     
+return fn;
+}
+
+static void printStr(const char *str, int len)
+{
+  int slen = strlen(str);
+  for (int i=0; i<len; ++i)
+   Serial.print(i<slen ? str[i] : ' ');
+  smartDelay(0);
+}
